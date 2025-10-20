@@ -569,3 +569,252 @@ tr:hover {
   background-color: #f5f5f5;
   color: #999;
 }
+
+/* Estilos para la página de login */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+.login-form {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-form h2 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #2c3e50;
+}
+
+.login-form .form-group {
+  margin-bottom: 1rem;
+}
+
+.login-form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.login-form input:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.login-form button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+  margin-top: 1rem;
+}
+
+/* Estilos para recuperar y cambiar contraseña */
+.recuperar-container, .cambiar-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+.recuperar-form, .cambiar-form {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
+
+.recuperar-form h2, .cambiar-form h2 {
+  text-align: center;
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+
+.recuperar-form p, .cambiar-form p {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.recuperar-actions, .cambiar-actions {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.recuperar-actions .btn, .cambiar-actions .btn {
+  margin: 0 0.25rem;
+}
+
+/* Estilos para filtros */
+.filtro-container {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filtro-select {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+/* Estilos para la lista de exámenes */
+.examenes-list {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.examen-item {
+  padding: 1rem;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  background-color: #fafafa;
+}
+
+.examen-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.examen-checkbox input[type="checkbox"] {
+  margin-top: 0.25rem;
+}
+
+.examen-info {
+  flex: 1;
+}
+
+.examen-info small {
+  color: #666;
+  font-style: italic;
+}
+
+.examen-resultado {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: #f0f8ff;
+  border-radius: 4px;
+}
+
+.examen-resultado label {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.examen-resultado input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* Estilos para acciones de diagnósticos */
+.diagnostico-actions {
+  margin: 0.5rem 0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.diagnostico-actions .btn {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Estilos para el buscador */
+.buscador-container {
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.buscador-input {
+  width: 100%;
+  max-width: 400px;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.buscador-input:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+/* Estilos para la información de resultados */
+.resultados-info {
+  margin: 0.5rem 0 1rem 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Estilos para el paginador */
+.paginador {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 1.5rem;
+  gap: 0.25rem;
+}
+
+.btn-pagina {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ddd;
+  background-color: white;
+  color: #333;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+.btn-pagina:hover {
+  background-color: #f0f0f0;
+}
+
+.btn-pagina.activo {
+  background-color: #3498db;
+  color: white;
+  border-color: #3498db;
+}
+
+.btn-pagina:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #f5f5f5;
+  color: #999;
+}
+
+/* Estilos para el nombre del usuario logueado */
+.usuario-logueado {
+  font-size: 0.9rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+}

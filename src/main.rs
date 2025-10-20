@@ -11,6 +11,32 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use tokio;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use bcrypt::{hash, verify, DEFAULT_COST};
+use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    exp: usize,
+    rol: String,
+    usuario_id: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginRequest {
+    email: String,
+    contrasena: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginResponse {
+    token: String,
+    rol: String,
+    usuario_id: i32,
+    nombre: String,
+    apellido: String,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Paciente {
@@ -133,6 +159,76 @@ struct CitaConDetalles {
     fecha_hora: NaiveDateTime,
     estado: String,
     motivo: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RecuperarContrasenaRequest {
+    email: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CambiarContrasenaRequest {
+    token: String,
+    nueva_contrasena: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RecuperarContrasenaResponse {
+    mensaje: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CambiarContrasenaResponse {
+    mensaje: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PerfilExamen {
+    id: i32,
+    nombre: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Examen {
+    id: i32,
+    nombre: String,
+    descripcion: Option<String>,
+    referencia_resultado: Option<String>,
+    perfil_id: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExamenConPerfil {
+    id: i32,
+    nombre: String,
+    descripcion: Option<String>,
+    referencia_resultado: Option<String>,
+    perfil_nombre: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExamenDiagnostico {
+    id: i32,
+    expediente_diagnostico_id: i32,
+    examen_id: i32,
+    resultado: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExamenDiagnosticoConDetalles {
+    id: i32,
+    expediente_diagnostico_id: i32,
+    examen_id: i32,
+    examen_nombre: String,
+    examen_descripcion: Option<String>,
+    examen_referencia: Option<String>,
+    resultado: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct NuevoExamenDiagnostico {
+    examen_id: i32,
+    resultado: Option<String>,
 }
 
 // --- FUNCIONES DE RUTAS ---
@@ -749,10 +845,328 @@ async fn delete_cita(
     Ok(StatusCode::NO_CONTENT)
 }
 
+
+//Login
+async fn login(
+    State(pool): State<PgPool>,
+    Json(login_data): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, StatusCode> {
+    // Buscar usuario por email
+    let row = sqlx::query(
+    "SELECT u.id, u.contrasena_hash, u.rol_id, u.nombre, u.apellido, r.nombre AS rol_nombre FROM usuarios u JOIN roles r ON u.rol_id = r.id WHERE u.email = $1"
+)
+    .bind(&login_data.email)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        eprintln!("Usuario no encontrado: {}", e);
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    let contrasena_hash: String = row.get("contrasena_hash");
+    let rol_id: i32 = row.get("rol_id");
+    let usuario_id: i32 = row.get("id");
+    let nombre: String = row.get("nombre");    // ✅ Obtenido
+    let apellido: String = row.get("apellido"); // ✅ Obtenido
+    let rol_nombre: String = row.get("rol_nombre");
+
+    // Verificar contraseña
+    let password_valid = verify(&login_data.contrasena, &contrasena_hash)
+        .map_err(|e| {
+            eprintln!("Error al verificar contraseña: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if !password_valid {
+        eprintln!("Contraseña incorrecta para usuario: {}", login_data.email);
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // Obtener nombre del rol
+    let rol_row = sqlx::query("SELECT nombre FROM roles WHERE id = $1")
+        .bind(rol_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al obtener rol: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let rol_nombre: String = rol_row.get("nombre");
+
+    // Crear token JWT
+    let expiration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() + 3600; // 1 hora de expiración
+
+    let claims = Claims {
+        sub: login_data.email,
+        exp: expiration as usize,
+        rol: rol_nombre.clone(),
+        usuario_id,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret("tu_clave_secreta_aqui".as_ref()),
+    ).map_err(|e| {
+        eprintln!("Error al crear token: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(LoginResponse {
+        token,
+        rol: rol_nombre,
+        usuario_id,
+        nombre,
+        apellido,
+    }))
+}
+
+async fn recuperar_contrasena(
+    State(pool): State<PgPool>,
+    Json(request): Json<RecuperarContrasenaRequest>,
+) -> Result<Json<RecuperarContrasenaResponse>, StatusCode> {
+    // Verificar que el usuario exista
+    let row = sqlx::query("SELECT id FROM usuarios WHERE email = $1")
+        .bind(&request.email)
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Usuario no encontrado para recuperación de contraseña: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+    // Generar token temporal para recuperación (expiración corta, por ejemplo 15 minutos)
+    let expiration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() + 900; // 15 minutos
+
+    let claims = Claims {
+        sub: request.email.clone(),
+        exp: expiration as usize,
+        rol: "recuperacion".to_string(), // Rol temporal
+        usuario_id: row.get("id"),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret("tu_clave_secreta_aqui".as_ref()),
+    ).map_err(|e| {
+        eprintln!("Error al crear token de recuperación: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // Simular envío de correo (en consola por ahora)
+    println!("Token de recuperación para {}: {}", request.email, token);
+
+    Ok(Json(RecuperarContrasenaResponse {
+        mensaje: "Se ha enviado un token de recuperación a tu correo".to_string(),
+    }))
+}
+
+async fn cambiar_contrasena(
+    State(pool): State<PgPool>,
+    Json(request): Json<CambiarContrasenaRequest>,
+) -> Result<Json<CambiarContrasenaResponse>, StatusCode> {
+    // Verificar token
+    let token_data = decode::<Claims>(
+        &request.token,
+        &DecodingKey::from_secret("tu_clave_secreta_aqui".as_ref()),
+        &Validation::default(),
+    ).map_err(|e| {
+        eprintln!("Token inválido o expirado: {}", e);
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    if token_data.claims.rol != "recuperacion" {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // Encriptar nueva contraseña
+    let nueva_contrasena_hash = hash(&request.nueva_contrasena, DEFAULT_COST)
+        .map_err(|e| {
+            eprintln!("Error al encriptar contraseña: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Actualizar contraseña en la base de datos
+    sqlx::query("UPDATE usuarios SET contrasena_hash = $1 WHERE id = $2")
+        .bind(&nueva_contrasena_hash)
+        .bind(token_data.claims.usuario_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al actualizar contraseña: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(Json(CambiarContrasenaResponse {
+        mensaje: "Contraseña actualizada exitosamente".to_string(),
+    }))
+}
+
+// GET /perfiles_examenes
+async fn get_perfiles_examenes(State(pool): State<PgPool>) -> Result<Json<Vec<PerfilExamen>>, StatusCode> {
+    let rows = sqlx::query("SELECT id, nombre FROM perfiles_examenes")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al obtener perfiles de exámenes: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let perfiles: Vec<PerfilExamen> = rows
+        .into_iter()
+        .map(|row| PerfilExamen {
+            id: row.get("id"),
+            nombre: row.get("nombre"),
+        })
+        .collect();
+
+    Ok(Json(perfiles))
+}
+
+// GET /examenes
+async fn get_examenes(State(pool): State<PgPool>) -> Result<Json<Vec<ExamenConPerfil>>, StatusCode> {
+    let rows = sqlx::query(
+        "SELECT e.id, e.nombre, e.descripcion, e.referencia_resultado, p.nombre AS perfil_nombre FROM examenes e JOIN perfiles_examenes p ON e.perfil_id = p.id"
+    )
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al obtener exámenes: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let examenes: Vec<ExamenConPerfil> = rows
+        .into_iter()
+        .map(|row| ExamenConPerfil {
+            id: row.get("id"),
+            nombre: row.get("nombre"),
+            descripcion: row.get("descripcion"),
+            referencia_resultado: row.get("referencia_resultado"),
+            perfil_nombre: row.get("perfil_nombre"),
+        })
+        .collect();
+
+    Ok(Json(examenes))
+}
+
+
+// GET /examenes_por_perfil/{perfil_id}
+async fn get_examenes_por_perfil(
+    Path(perfil_id): Path<i32>,
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<Examen>>, StatusCode> {
+    let rows = sqlx::query("SELECT id, nombre, descripcion, referencia_resultado, perfil_id FROM examenes WHERE perfil_id = $1")
+        .bind(perfil_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al obtener exámenes por perfil: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let examenes: Vec<Examen> = rows
+        .into_iter()
+        .map(|row| Examen {
+            id: row.get("id"),
+            nombre: row.get("nombre"),
+            descripcion: row.get("descripcion"),
+            referencia_resultado: row.get("referencia_resultado"),
+            perfil_id: row.get("perfil_id"),
+        })
+        .collect();
+
+    Ok(Json(examenes))
+}
+
+// GET /examenes_por_diagnostico/{diagnostico_id}
+async fn get_examenes_por_diagnostico(
+    Path(diagnostico_id): Path<i32>,
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<ExamenDiagnosticoConDetalles>>, StatusCode> {
+    let rows = sqlx::query(
+        "SELECT ede.id, ede.expediente_diagnostico_id, ede.examen_id, e.nombre AS examen_nombre, e.descripcion AS examen_descripcion, e.referencia_resultado AS examen_referencia, ede.resultado FROM expedientes_diagnosticos_examenes ede JOIN examenes e ON ede.examen_id = e.id WHERE ede.expediente_diagnostico_id = $1"
+    )
+        .bind(diagnostico_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Error al obtener exámenes por diagnóstico: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let examenes: Vec<ExamenDiagnosticoConDetalles> = rows
+        .into_iter()
+        .map(|row| ExamenDiagnosticoConDetalles {
+            id: row.get("id"),
+            expediente_diagnostico_id: row.get("expediente_diagnostico_id"),
+            examen_id: row.get("examen_id"),
+            examen_nombre: row.get("examen_nombre"),
+            examen_descripcion: row.get("examen_descripcion"),
+            examen_referencia: row.get("examen_referencia"),
+            resultado: row.get("resultado"),
+        })
+        .collect();
+
+    Ok(Json(examenes))
+}
+
+// POST /examenes_por_diagnostico/{diagnostico_id}
+async fn add_examenes_a_diagnostico(
+    Path(diagnostico_id): Path<i32>,
+    State(pool): State<PgPool>,
+    Json(examenes_data): Json<Vec<NuevoExamenDiagnostico>>,
+) -> Result<Json<Vec<ExamenDiagnostico>>, StatusCode> {
+    let mut resultados = Vec::new();
+
+    for examen_data in examenes_data {
+        let result = sqlx::query(
+            "INSERT INTO expedientes_diagnosticos_examenes (expediente_diagnostico_id, examen_id, resultado) VALUES ($1, $2, $3) RETURNING id"
+        )
+            .bind(diagnostico_id)
+            .bind(examen_data.examen_id)
+            .bind(examen_data.resultado.clone())
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| {
+                eprintln!("Error al agregar examen a diagnóstico: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        resultados.push(ExamenDiagnostico {
+            id: result.get("id"),
+            expediente_diagnostico_id: diagnostico_id,
+            examen_id: examen_data.examen_id,
+            resultado: examen_data.resultado,
+        });
+    }
+
+    Ok(Json(resultados))
+}
+
+
+
 // --- FIN DE FUNCIONES ---
+
+
+/*fn generar_hash_temporal() {
+    let password = "contraseña123";
+    let hashed = hash(password, DEFAULT_COST).unwrap();
+    println!("Hash para '{}': {}", password, hashed);
+}*/
+
 
 #[tokio::main]
 async fn main() {
+
+    //generar_hash_temporal();
     dotenv::dotenv().ok();
 
     let database_url = env::var("DATABASE_URL")
@@ -762,7 +1176,10 @@ async fn main() {
         .await
         .expect("No se pudo conectar a la base de datos");
 
-    let app = Router::new()
+let app = Router::new()
+    .route("/login", post(login))
+    .route("/recuperar-contrasena", post(recuperar_contrasena))
+    .route("/cambiar-contrasena", post(cambiar_contrasena)) 
     .route("/pacientes", get(get_pacientes).post(create_paciente))
     .route("/pacientes/:id", get(get_paciente_by_id).put(update_paciente).delete(delete_paciente))
     // rutas para expedientes
@@ -776,13 +1193,18 @@ async fn main() {
     // rutas para citas
     .route("/citas", get(get_citas).post(create_cita))
     .route("/citas/{id}", get(get_cita_by_id).put(update_cita).delete(delete_cita))
-   .layer(
-    CorsLayer::new()
-        .allow_origin("http://localhost:5173".parse::<axum::http::HeaderValue>().unwrap()) // Especificamos el tipo
-        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
-        .allow_headers([axum::http::header::CONTENT_TYPE]),
-)
-
+    // rutas para exámenes
+    .route("/perfiles_examenes", get(get_perfiles_examenes))
+    .route("/examenes", get(get_examenes))
+    .route("/examenes_por_perfil/{perfil_id}", get(get_examenes_por_perfil))
+   
+    .route("/examenes_por_diagnostico/{diagnostico_id}", get(get_examenes_por_diagnostico).post(add_examenes_a_diagnostico))
+    .layer(
+        CorsLayer::new()
+            .allow_origin("http://localhost:5173".parse::<axum::http::HeaderValue>().unwrap())
+            .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
+            .allow_headers([axum::http::header::CONTENT_TYPE]),
+    )
     .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
